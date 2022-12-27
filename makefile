@@ -1,4 +1,4 @@
-TARGET_EXEC ?= a.out
+TARGET_EXEC ?= main.x
 
 BUILD_DIR ?= ./build
 SRC_DIRS ?= ./src
@@ -12,10 +12,10 @@ DEPS := $(OBJS:.o=.d)
 # find <dir> -type d returns all directories in <dir>
 # it's an overkill
 #INC_DIRS := $(shell find $(SRC_DIRS) -type d)
-INC_DIRS := ./include
+INC_DIRS := ./include $(HOME)/.local/include $(shell find $(SRC_DIRS) -type d)
 INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 
-LIB_DIRS := ./lib
+LIB_DIRS := ./lib $(HOME)/.local/lib
 LDFLAGS := $(addprefix -L,$(LIB_DIRS)) -lGL -lGLEW -lglfw3 -lrt -lm -ldl -lX11 -lpthread -lxcb -lXau -lXdmcp
 
 CPPFLAGS ?= $(INC_FLAGS) -g -Wall -std=c++2a
