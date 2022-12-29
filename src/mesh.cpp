@@ -12,6 +12,21 @@ Mesh::Mesh(){
 
 void Mesh::CreateMesh(GLfloat *vertices, unsigned int *indices, unsigned int numofVertices, unsigned int numofIndices)
 {
+    /* Create a mesh with the given vertices and indices. We are
+    assuming that the vertices are in the following format:
+    x, y, z, u, v
+    where x, y, z are the position coordinates, and u, v are the
+    texture coordinates.
+
+     * Input:
+     * - vertices: array of type GLfloat that contains the vertices in the format
+     *            x, y, z, u, v
+     * - indices: array of type unsigned int that define the triangles
+     * - numofVertices: length of vertices array
+     * - numofIndices: length of indices array
+     * Output:
+     * - None  
+    */
     indexCount = numofIndices;
 
     // Create and bind VAO
@@ -44,6 +59,9 @@ void Mesh::CreateMesh(GLfloat *vertices, unsigned int *indices, unsigned int num
 
 void Mesh::RenderMesh()
 {
+    /* Render the mesh. The VAO is bound and the EBO is used to draw the triangles.
+     * The VAO and EBO are unbound.
+    */
     glBindVertexArray(VAO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
