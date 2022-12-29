@@ -5,22 +5,21 @@
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 
+enum class ShaderType{
+    VERTEX,
+    FRAGMENT,
+    COMPUTE
+};
+
 class ShaderProgram{
 /*
 
 */
-
-    private:
-
-        GLuint ID;        
-
-        void AddShader(std::string shaderCode, GLenum shaderType);
-        void CompileShaders();
-
-    public:
+    public:    
 
         //constructor reads and builds the shader
         ShaderProgram();
+        ShaderProgram(std::string shaderPath, ShaderType shaderType);
         ShaderProgram(std::string vertexPath, std::string fragmentPath);
 
         void use(){ glUseProgram(ID);}
@@ -34,6 +33,14 @@ class ShaderProgram{
         void setVec3 (const std::string &name, glm::vec3 value) const;
         void setVec2 (const std::string &name, glm::vec2 value) const;
         void setMat4 (const std::string &name, glm::mat4 value) const;
+
+    private:
+
+        GLuint ID;        
+
+        void AddShader(std::string shaderCode, GLenum shaderType);
+        void CompileShaders();
+
 };
 
 #endif 

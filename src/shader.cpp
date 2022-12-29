@@ -9,7 +9,34 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-ShaderProgram::ShaderProgram(){} // Is this terrible?
+ShaderProgram::ShaderProgram(){}; //empty constructor
+
+ShaderProgram::ShaderProgram(std::string shaderPath, ShaderType shaderType){
+    ID = glCreateProgram();
+    if (!ID){
+        std::cout<<"Error creating shader program"<<std::endl;
+        return;
+    }
+
+    switch (shaderType)
+    {
+    case ShaderType::VERTEX:
+        AddShader(shaderPath, GL_VERTEX_SHADER);
+        break;
+    
+    case ShaderType::FRAGMENT:
+        AddShader(shaderPath, GL_FRAGMENT_SHADER);
+        break;
+    
+    case ShaderType::COMPUTE:
+        AddShader(shaderPath, GL_COMPUTE_SHADER);
+        break;
+    default:
+        break;
+    }
+
+    CompileShaders();
+}
 
 ShaderProgram::ShaderProgram(std::string vertexPath, std::string fragmentPath){
 
