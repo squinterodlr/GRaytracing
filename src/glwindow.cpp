@@ -21,8 +21,6 @@ GLWindow::GLWindow(GLuint windowWidth, GLuint windowHeight){
 
     width = windowWidth;
     height = windowHeight;
-
-
     for (size_t i = 0; i < 1024; i++)
     {
         keys[i] = 0;
@@ -44,7 +42,6 @@ int GLWindow::Initialize(int GLVersionMajor, int GLVersionMinor){
     }
 
     // Setup GLFW window properties:
-    // OpenGL version 4.3
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, GLVersionMajor);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, GLVersionMinor);
 
@@ -62,6 +59,14 @@ int GLWindow::Initialize(int GLVersionMajor, int GLVersionMinor){
         glfwTerminate();
         return 1;
     }
+
+    // Get main monitor info and center window
+    const GLFWvidmode *vidMode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    int screenWidth = vidMode->width;
+    int screenHeight = vidMode->height;
+    int windowX = (screenWidth - width)/2;
+    int windowY = (screenHeight - height)/2;
+    glfwSetWindowPos(window, windowX, windowY);
 
     // Get buffer size information
     int bufferWidth, bufferHeight;
