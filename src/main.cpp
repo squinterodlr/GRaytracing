@@ -26,10 +26,11 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 // Window dimensions
 GLWindow mainWindow;
-const GLint WIDTH = 800, HEIGHT = 600;
+const GLint WIDTH = 512, HEIGHT = 512;
 
 // Shader program
-ShaderProgram shaderProgram;
+ShaderProgram computeShader;
+ShaderProgram fragmentShader;
 
 // Textures
 Texture brickTexture;
@@ -78,13 +79,24 @@ int main(){
 
     // Initialize shaders
     std::cout<<"\t Initializing shaders...\n";
-    shaderProgram = ShaderProgram(vertexShaderPath,fragmentShaderPath);
+    computeShader = ShaderProgram(computeShaderPath, ShaderType::COMPUTE);
+    fragmentShader = ShaderProgram(vertexShaderPath, fragmentShaderPath);
 
-
-    // Initialize texture
+    // Initialize texture where we output the results
+    // of compute shader
     std::cout<<"\t Initializing textures...\n";
-    brickTexture = Texture("assets/textures/brick.png");
-    brickTexture.LoadTexture();
+    
+    unsigned int computeTexture;
+
+    glGenTextures(1, &computeTexture);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, computeTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, WIDTH, HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+    glBindImageTexture(0, computeTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
 
     // Loop until window is closed.
@@ -97,13 +109,17 @@ int main(){
         glClearColor(0.0f,0.0f,0.0f,1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
-        shaderProgram.use();
-        
-        brickTexture.UseTexture();
+        computeShader.use();
+        glDispatchCompute((unsigned int)WIDTH, (unsigned int)HEIGHT, 1);
+        // Make sure writing has finished before read
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        fragmentShader.use();
+        fragmentShader.setInt("theTexture", 0);
+        glBindTexture(GL_TEXTURE_2D, computeTexture);
         meshList[0]->RenderMesh();
 
         glUseProgram(0);
-
         mainWindow.swapBuffers();
     }
 

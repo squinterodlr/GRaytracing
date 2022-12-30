@@ -1,0 +1,184 @@
+#version 430 core
+
+#define M_PI 3.1415926535897932384626433832795
+#define M_PI_2 1.5707963267948966192313216916398
+#define DEGREE 0.01745329251994329576923690768489
+
+// Define the size of the work groups
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+// Define the output image
+layout(rgba32f, binding = 0) uniform image2D imgOutput;
+
+struct Camera{
+    vec3 position;
+    vec3 direction;
+    vec3 up;
+    vec3 right;
+    float fov; // horizontal field of view in radians
+    float aspectRatio; // width / height
+    float focalLength;
+};
+
+void lookAt(inout Camera camera, in vec3 target){
+    
+    //Set the camera direction to point at the target
+    
+    camera.direction = normalize(target - camera.position);
+    camera.right = normalize(cross(camera.direction, camera.up));
+    camera.up = normalize(cross(camera.right, camera.direction));
+}
+
+vec3 pixelToWorld(Camera camera, ivec2 pixelCoord, ivec2 imageDims){
+    /*
+    Convert pixel coordinates to world coordinates
+    Note that the pixel coordinates are in the range [0, imageDims.x] and [0, imageDims.y],
+    and the y axis increases upwards (so it is a left-handed coordinate system because z increases out of the screen).
+    */
+    float viewportWidth = 2.0 * camera.focalLength * tan(camera.fov/2.0);
+    float viewportHeight = viewportWidth / camera.aspectRatio;
+    vec2 viewport = vec2(viewportWidth, viewportHeight);
+    vec2 pixel = vec2( float(pixelCoord.x), float(pixelCoord.y) );
+    vec2 imageCenter = vec2(float(imageDims.x)/2.0, float(imageDims.y)/2.0);
+    vec2 pixelOffset = pixel - imageCenter;
+    vec2 pixelOffsetRatio = pixelOffset / imageCenter;
+    vec2 pixelOffsetWorld = pixelOffsetRatio * viewport;
+    vec3 pixelWorld = camera.position
+                    + camera.focalLength * camera.direction
+                    + pixelOffsetWorld.x * camera.right
+                    + pixelOffsetWorld.y * camera.up;
+    return pixelWorld;
+}
+
+struct Material{
+    vec3 color;
+    float reflectivity;
+    float refractivity;
+    float refractiveIndex;
+    float diffuse;
+    float specular;
+    float roughness;
+
+};
+
+struct Sphere{
+    vec3 center;
+    float radius;
+    vec3 color;
+};
+struct Plane{
+    vec3 position;
+    vec3 normal;
+    vec3 color;
+};
+struct PointLight{
+    vec3 position;
+    vec3 color;
+    float intensity;
+};
+struct Ray{
+    vec3 origin;
+    vec3 direction;
+};
+
+float HitSphere(Ray ray, Sphere sphere){
+    /*
+    Ray: points of the form x(t) = origin + t*direction
+    Sphere: points of the form ||x-center|| = radius
+    A point on the ray is on the sphere if
+    ||origin + t*direction - center||^2 = radius^2
+    Let oc = origin-center, so
+    ||oc||^2 + 2*t*dot(oc,direction) + t^2*||direction||^2 = radius^2
+    It's a quadratic equation with discriminant
+    disc = b^2 - 4*a*c
+    where a = ||direction||^2, b = 2*dot(oc,direction), c = ||oc||^2 - radius^2
+    If disc < 0, no intersection
+    If disc = 0, one intersection
+    If disc > 0, two intersections
+    If there are intersections, the closest one is
+    t = (-b - sqrt(disc)) / (2*a)
+    */
+    vec3 oc = ray.origin - sphere.center;
+    float a = dot(ray.direction, ray.direction);
+    float b = 2.0 * dot(oc, ray.direction);
+    float c = dot(oc, oc) - sphere.radius * sphere.radius;
+    float discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0.0){
+        return -1.0;
+    }
+    else{
+        return (-b - sqrt(discriminant)) / (2.0 * a);
+    }
+}
+
+float HitPlane(Ray ray, Plane plane){
+    /*
+    A plane passing through point p0 with normal n is the set of points x
+    such that dot(x-p0, n) = 0
+    With a ray x(t) = o + t*d the condition is
+    dot(o+t*d-p0, n) = 0,
+    t = dot(p0-o, n) / dot(d, n)
+    If dot(d, n) = 0, the ray is parallel to the plane and there is no intersection.
+    */
+    float denom = dot(ray.direction, plane.normal);
+    if (abs(denom) > 0.0001){
+        vec3 planeOrigin = plane.position - ray.origin;
+        return dot(planeOrigin, plane.normal) / denom;
+    }
+    else{
+        return -1.0;
+    }
+}
+
+float Falloff(float distance){
+    return 1.0 / (1.0 + ((distance * distance)/0.5));
+}
+
+float maxX = 1.0;
+float maxY = 1.0;
+float maxT = 100.0;
+
+Sphere sphere = Sphere(vec3(0.0, 0.0, 0.25), 0.25, vec3(1.0, 0.0, 0.0));
+Plane plane = Plane(vec3(0.0, 0.0, -5.0), normalize(vec3(0.0,-1.0,5.0)), vec3(0.0, 1.0, 0.0));
+
+// Camera params
+vec3 cameraPosition = vec3(0.0, -0.5, 0.5);
+vec3 cameraTarget = vec3(0.0, 0.0, 0.25);
+vec3 cameraUp = vec3(0.0, 0.0, 1.0);
+vec3 cameraRight = vec3(1.0, 0.0, 0.0);
+float cameraFOV = 60*DEGREE;
+float cameraAspectRatio = 0.0;
+float cameraFocalLength = 0.1;
+
+Camera camera = Camera(cameraPosition,
+                    cameraTarget - cameraPosition,
+                    cameraUp, 
+                    cameraRight,
+                    cameraFOV,
+                    cameraAspectRatio,
+                    cameraFocalLength);
+
+void main(){
+    // base pixel color
+    vec4 pixel = vec4(0.0, 0.0, 0.0, 1.0);
+    // get pixel coordinates from global workgroup size and thread ID
+    ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageDims = imageSize(imgOutput);
+
+    camera.aspectRatio = float(imageDims.x) / float(imageDims.y);
+
+    lookAt(camera, cameraTarget);
+
+    vec3 pixelWorld = pixelToWorld(camera, pixelCoord, imageDims);
+    vec3 rayDirection = normalize(pixelWorld - camera.position);
+
+    Ray ray = Ray(camera.position, rayDirection);
+
+    float t = HitSphere(ray, sphere);
+    if (t > 0.0 && t < maxT){
+        maxT = t;
+        vec3 color = sphere.color*Falloff(t);
+        pixel = vec4(color, 1.0);
+    }
+    // write the pixel to the output image
+    imageStore(imgOutput, pixelCoord, pixel);
+}
