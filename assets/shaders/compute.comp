@@ -9,6 +9,47 @@ layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 // Define the output image
 layout(rgba32f, binding = 0) uniform image2D imgOutput;
 
+uniform float time;
+
+/*
+    static.frag
+    by Spatial
+    05 July 2013
+    https://stackoverflow.com/a/17479300
+*/
+// A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
+uint hash( uint x ) {
+    x += ( x << 10u );
+    x ^= ( x >>  6u );
+    x += ( x <<  3u );
+    x ^= ( x >> 11u );
+    x += ( x << 15u );
+    return x;
+}
+// Compound versions of the hashing algorithm I whipped together.
+uint hash( uvec2 v ) { return hash( v.x ^ hash(v.y)                         ); }
+uint hash( uvec3 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z)             ); }
+uint hash( uvec4 v ) { return hash( v.x ^ hash(v.y) ^ hash(v.z) ^ hash(v.w) ); }
+// Construct a float with half-open range [0:1] using low 23 bits.
+// All zeroes yields 0.0, all ones yields the next smallest representable value below 1.0.
+float floatConstruct( uint m ) {
+    const uint ieeeMantissa = 0x007FFFFFu; // binary32 mantissa bitmask
+    const uint ieeeOne      = 0x3F800000u; // 1.0 in IEEE binary32
+
+    m &= ieeeMantissa;                     // Keep only mantissa bits (fractional part)
+    m |= ieeeOne;                          // Add fractional part to 1.0
+
+    float  f = uintBitsToFloat( m );       // Range [1:2]
+    return f - 1.0;                        // Range [0:1]
+}
+// Pseudo-random value in half-open range [0:1].
+float random( float x ) { return floatConstruct(hash(floatBitsToUint(x))); }
+float random( vec2  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+float random( vec3  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+float random( vec4  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
+
+
+
 struct Camera{
     vec3 position;
     vec3 direction;
@@ -51,24 +92,18 @@ vec3 pixelToWorld(Camera camera, ivec2 pixelCoord, ivec2 imageDims){
 
 struct Material{
     vec3 color;
-    float reflectivity;
-    float refractivity;
-    float refractiveIndex;
-    float diffuse;
-    float specular;
-    float roughness;
-
+    float albedo;
 };
 
 struct Sphere{
     vec3 center;
     float radius;
-    vec3 color;
+    Material material;
 };
 struct Plane{
     vec3 position;
     vec3 normal;
-    vec3 color;
+    Material material;
 };
 struct PointLight{
     vec3 position;
@@ -80,7 +115,15 @@ struct Ray{
     vec3 direction;
 };
 
-float HitSphere(Ray ray, Sphere sphere){
+struct Hit{
+    bool hit;
+    float t;
+    vec3 position;
+    vec3 normal;
+    Material material;
+};
+
+Hit HitSphere(Ray ray, Sphere sphere){
     /*
     Ray: points of the form x(t) = origin + t*direction
     Sphere: points of the form ||x-center|| = radius
@@ -103,14 +146,17 @@ float HitSphere(Ray ray, Sphere sphere){
     float c = dot(oc, oc) - sphere.radius * sphere.radius;
     float discriminant = b * b - 4.0 * a * c;
     if (discriminant < 0.0){
-        return -1.0;
+        return Hit(false, -1.0, vec3(0.0), vec3(0.0), sphere.material);
     }
     else{
-        return (-b - sqrt(discriminant)) / (2.0 * a);
+        float t = (-b - sqrt(discriminant)) / (2.0 * a);
+        vec3 position = ray.origin + t * ray.direction;
+        vec3 normal = normalize(position - sphere.center);
+        return Hit(true, t, position, normal, sphere.material);
     }
 }
 
-float HitPlane(Ray ray, Plane plane){
+Hit HitPlane(Ray ray, Plane plane){
     /*
     A plane passing through point p0 with normal n is the set of points x
     such that dot(x-p0, n) = 0
@@ -122,10 +168,12 @@ float HitPlane(Ray ray, Plane plane){
     float denom = dot(ray.direction, plane.normal);
     if (abs(denom) > 0.0001){
         vec3 planeOrigin = plane.position - ray.origin;
-        return dot(planeOrigin, plane.normal) / denom;
+        float t = dot(planeOrigin, plane.normal) / denom;
+        vec3 position = ray.origin + t * ray.direction;
+        return Hit(true, t, position, plane.normal, plane.material);
     }
     else{
-        return -1.0;
+        return Hit(false, -1.0, vec3(0.0), vec3(0.0), plane.material);
     }
 }
 
@@ -133,21 +181,63 @@ float Falloff(float distance){
     return 1.0 / (1.0 + ((distance * distance)/0.5));
 }
 
-float maxX = 1.0;
-float maxY = 1.0;
-float maxT = 100.0;
+mat3 rotateToNormal(vec3 normal){
+    /*
+    Rotate the standard basis to be aligned with the normal
+    */
+    normal = normalize(normal);
+    vec3 newX = cross(normal, vec3(0.0, 0.0, 1.0));
+    if (length(newX) < 0.0001){
+        newX = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
+        vec3 newY = normalize(cross(normal, newX));
+        return mat3(newX, newY, normal);
+    }
+    else{
+        vec3 newY = normalize(cross(normal, newX));
+        return mat3(newX, newY, normal);
+    }
+    
+}
+vec3 randomFromHemisphere(vec3 normal, vec2 seed){
+    /*
+    Generate a random point on the unit hemisphere with normal n
+    */
+    float u = random(vec3(seed, time));
+    // v >= 0.5 to avoid points below the hemisphere
+    float v = 0.5 + 0.5*random(vec3(seed, time) + vec3(1.0, 1.0, 1.0));
+    float phi = 2.0 * M_PI * u;
+    float theta = acos(2.0 * v - 1.0);
+    vec3 randomPoint = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+    mat3 rotation = rotateToNormal(normal);
+    return rotation * randomPoint;    
+}
 
-Sphere sphere = Sphere(vec3(0.0, 0.0, 0.25), 0.25, vec3(1.0, 0.0, 0.0));
-Plane plane = Plane(vec3(0.0, 0.0, -5.0), normalize(vec3(0.0,-1.0,5.0)), vec3(0.0, 1.0, 0.0));
+float maxT = 5000.0;
+
+vec3 red = vec3(1.0, 0.0, 0.0);
+vec3 green = vec3(0.0, 1.0, 0.0);
+vec3 blue = vec3(0.0, 0.0, 1.0);
+vec3 white = vec3(1.0, 1.0, 1.0);
+vec3 black = vec3(0.0, 0.0, 0.0);
+vec3 yellow = vec3(1.0, 1.0, 0.0);
+vec3 cyan = vec3(0.0, 1.0, 1.0);
+vec3 magenta = vec3(1.0, 0.0, 1.0);
+vec3 turquoise = vec3(0.0, 0.8, 0.8);
+vec3 lightBlue = vec3(0.0, 0.8, 1.0);
+vec3 columbiaBlue = vec3(200.0, 231.0, 255.0)/255.0;
+
+Sphere sphere = Sphere(vec3(0.0, 0.0, 0.25), 0.25, Material(red, 0.5));
+Plane plane = Plane(vec3(0.0, 0.0, -0.05), normalize(vec3(0.0,0.0,1.0)), Material(turquoise, 0.5));
 
 // Camera params
-vec3 cameraPosition = vec3(0.0, -0.5, 0.5);
+vec3 cameraPosition = vec3(0.0, -0.5, 0.4);
 vec3 cameraTarget = vec3(0.0, 0.0, 0.25);
 vec3 cameraUp = vec3(0.0, 0.0, 1.0);
 vec3 cameraRight = vec3(1.0, 0.0, 0.0);
 float cameraFOV = 60*DEGREE;
 float cameraAspectRatio = 0.0;
-float cameraFocalLength = 0.1;
+float cameraFocalLength = 1.0;
+vec3 skyColor = columbiaBlue;
 
 Camera camera = Camera(cameraPosition,
                     cameraTarget - cameraPosition,
@@ -157,9 +247,36 @@ Camera camera = Camera(cameraPosition,
                     cameraAspectRatio,
                     cameraFocalLength);
 
+int raysPerPixel = 512;
+int maxBounces = 5;
+
+Hit findClosestIntersection(Ray ray){
+    Hit hitSphere = HitSphere(ray, sphere);
+    Hit hitPlane = HitPlane(ray, plane);
+    float t = maxT;
+    vec3 normal = vec3(0.0, 0.0, 0.0);
+    vec3 position = ray.origin;
+    Material material = Material(skyColor,  1.0);
+
+    if (hitSphere.t > 0.0 && hitSphere.t < t){
+        t = hitSphere.t;
+        normal = hitSphere.normal;
+        material = hitSphere.material;
+    }
+    if (hitPlane.t > 0.0 && hitPlane.t < t){
+        t = hitPlane.t;
+        normal = hitPlane.normal;
+        material = hitPlane.material;
+    }
+    if (t < maxT){
+        position = ray.origin + t * ray.direction;
+    }
+    return Hit(t < maxT, t, position, normal, material);
+}
+
 void main(){
     // base pixel color
-    vec4 pixel = vec4(0.0, 0.0, 0.0, 1.0);
+    vec3 pixelColor = black;
     // get pixel coordinates from global workgroup size and thread ID
     ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
     ivec2 imageDims = imageSize(imgOutput);
@@ -168,17 +285,46 @@ void main(){
 
     lookAt(camera, cameraTarget);
 
+    float viewportWidth = 2.0 * camera.focalLength * tan(camera.fov/2.0);
+    float viewportHeight = viewportWidth / camera.aspectRatio;
+    vec2 viewport = vec2(viewportWidth, viewportHeight);
+    vec2 pixelWorldSize = viewport / vec2(float(imageDims.x), float(imageDims.y));
+
     vec3 pixelWorld = pixelToWorld(camera, pixelCoord, imageDims);
-    vec3 rayDirection = normalize(pixelWorld - camera.position);
+ 
+    for (int i = 0; i < raysPerPixel; i++){
+        float jitterX = random( vec3(pixelCoord.x, pixelCoord.y, time));
+        float jitterY = random( vec3(pixelCoord.x, pixelCoord.y, time+1000.0));
+        vec2 jitter = vec2(jitterX, jitterY);
+        jitter = jitter * pixelWorldSize;
+        jitter = jitter - pixelWorldSize/2.0;
+        jitter = 0.1 * jitter;
+        vec3 jitteredPixelWorld = pixelWorld + jitter.x*camera.right + jitter.y*camera.up;
+        
+        vec3 direction = normalize(jitteredPixelWorld - camera.position);
+        vec3 position = camera.position;
+        vec3 rayColor = black;
+        vec3 hitColor;
+        int numBounces = 0;
+        for (numBounces; numBounces < maxBounces; numBounces++){
 
-    Ray ray = Ray(camera.position, rayDirection);
-
-    float t = HitSphere(ray, sphere);
-    if (t > 0.0 && t < maxT){
-        maxT = t;
-        vec3 color = sphere.color*Falloff(t);
-        pixel = vec4(color, 1.0);
+            Ray ray = Ray(position, direction);
+            Hit hitObject = findClosestIntersection(ray);
+            if (!hitObject.hit){
+                hitColor = skyColor;
+                rayColor = rayColor + hitColor;
+                break;
+            }
+            position = hitObject.position;
+            direction = randomFromHemisphere(hitObject.normal, vec2(pixelCoord.x, pixelCoord.y));
+            hitColor = (hitObject.material.color * hitObject.material.albedo * dot(hitObject.normal, direction));
+            rayColor = rayColor + hitColor;
+        }
+        pixelColor = pixelColor + (rayColor/float(numBounces + 1));
     }
+    pixelColor = pixelColor / float(raysPerPixel);
+    vec4 pixel = vec4(pixelColor, 1.0);
+    
     // write the pixel to the output image
     imageStore(imgOutput, pixelCoord, pixel);
 }
