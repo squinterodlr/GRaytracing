@@ -5,11 +5,10 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
-
-class GLWindow{
+class GLWindow
+{
 
 public:
-    
     GLWindow();
     GLWindow(GLuint windowWidth, GLuint windowHeight);
     ~GLWindow();
@@ -19,15 +18,15 @@ public:
 
     void swapBuffers();
 
-    bool getShouldClose(){return glfwWindowShouldClose(window); }
+    bool getShouldClose() { return glfwWindowShouldClose(window); }
+    bool getKeyPressed(unsigned int keyID) { return keys[keyID]; }
 
     GLfloat getXChange();
     GLfloat getYChange();
 
-    bool *getKeys(){return keys;}
-    
-private:
+    bool *getKeys() { return keys; }
 
+private:
     GLFWwindow *window;
     GLuint width, height;
     int bufferWidth, bufferHeight;
@@ -36,13 +35,12 @@ private:
     bool keys[1024];
 
     GLfloat lastMouseX, lastMouseY, mouseDeltaX, mouseDeltaY;
-    bool mouseFirstMoved; //We want to avoid the camera jumping when we make the window active
+    bool mouseFirstMoved; // We want to avoid the camera jumping when we make the window active
 
     void createCallbacks();
     // A callback can't take a member function of class, that's why we have to make it static
     static void handleKeys(GLFWwindow *window, int key, int code, int action, int mode);
     static void handleMouse(GLFWwindow *window, double xPos, double yPos);
 };
-
 
 #endif
