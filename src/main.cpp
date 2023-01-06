@@ -22,7 +22,7 @@
 
 #define ASSETS_PATH "./assets"
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 
 // Window dimensions
 GLWindow mainWindow;
@@ -35,93 +35,101 @@ ShaderProgram fragmentShader;
 // Textures
 Texture brickTexture;
 
+// Time
+GLfloat deltaTime = 0.0f;
+GLfloat lastTime = 0.0f;
+
 // List of meshes
-std::vector<Mesh*> meshList;
+std::vector<Mesh *> meshList;
 
 // List of shaders
-std::string vertexShaderPath   = "./assets/shaders/vertex.vert";
+std::string vertexShaderPath = "./assets/shaders/vertex.vert";
 std::string fragmentShaderPath = "./assets/shaders/fragment.frag";
-std::string computeShaderPath  = "./assets/shaders/compute.comp";
+std::string computeShaderPath = "./assets/shaders/compute.comp";
 
+int main()
+{
 
-int main(){
+  std::cout << "\t Initializing window...\n";
+  mainWindow = GLWindow(WIDTH, HEIGHT);
+  // version 4.3 for compute shaders
+  mainWindow.Initialize(4, 3);
 
-    std::cout<<"\t Initializing window...\n";
-    mainWindow = GLWindow(WIDTH,HEIGHT);  
-    // version 4.3 for compute shaders
-    mainWindow.Initialize(4,3);
+  std::cout << "\t Creating objects...\n";
+  Mesh *rectangle = new Mesh();
 
-    std::cout<<"\t Creating objects...\n";
-    Mesh *rectangle = new Mesh();
-
-    float vertices[] = {
-    // x      y     z    u     v
+  float vertices[] = {
+      // x      y     z    u     v
       1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
-      1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
-      -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
-      -1.0f, -1.0f, 0.0f, 0.0f, 0.0f
-    };
+      1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+      -1.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+      -1.0f, -1.0f, 0.0f, 0.0f, 0.0f};
 
-    /*
-      2 ---- 1
-      |      |
-      |      |
-      3 ---- 0
-    */
+  /*
+    2 ---- 1
+    |      |
+    |      |
+    3 ---- 0
+  */
 
-    unsigned int indices[] = {
+  unsigned int indices[] = {
       0, 1, 3,
-      1, 2, 3
-    };
+      1, 2, 3};
 
-    rectangle->CreateMesh(vertices, indices, 4*5, 2*3);
-    meshList.push_back(rectangle);
+  rectangle->CreateMesh(vertices, indices, 4 * 5, 2 * 3);
+  meshList.push_back(rectangle);
 
-    // Initialize shaders
-    std::cout<<"\t Initializing shaders...\n";
-    computeShader = ShaderProgram(computeShaderPath, ShaderType::COMPUTE);
-    fragmentShader = ShaderProgram(vertexShaderPath, fragmentShaderPath);
+  // Initialize shaders
+  std::cout << "\t Initializing shaders...\n";
+  computeShader = ShaderProgram(computeShaderPath, ShaderType::COMPUTE);
+  fragmentShader = ShaderProgram(vertexShaderPath, fragmentShaderPath);
 
-    // Initialize texture where we output the results
-    // of compute shader
-    std::cout<<"\t Initializing textures...\n";
-    
-    unsigned int computeTexture;
+  // Initialize texture where we output the results
+  // of compute shader
+  std::cout << "\t Initializing textures...\n";
 
-    glGenTextures(1, &computeTexture);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, computeTexture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, WIDTH, HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
-    glBindImageTexture(0, computeTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+  unsigned int computeTexture;
 
+  glGenTextures(1, &computeTexture);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, computeTexture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 256, 256, 0, GL_RGBA, GL_FLOAT, NULL);
+  glBindImageTexture(0, computeTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
-    // Loop until window is closed.
-    while(!mainWindow.getShouldClose())
+  // Loop until window is closed.
+  while (!mainWindow.getShouldClose())
+  {
+    // Get and handle user input events
+    glfwPollEvents();
+
+    // Redraw only if space is pressed
+    if (mainWindow.getKeyPressed(GLFW_KEY_SPACE))
     {
-        // Get and handle user input events
-        glfwPollEvents();
 
-        // Clear window
-        glClearColor(0.0f,0.0f,0.0f,1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+      // Clear window
+      glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        computeShader.use();
-        glDispatchCompute((unsigned int)WIDTH, (unsigned int)HEIGHT, 1);
-        // Make sure writing has finished before read
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+      GLfloat currentTime = glfwGetTime();
+      computeShader.use();
+      computeShader.setFloat("time", currentTime);
+      glDispatchCompute((unsigned int)WIDTH, (unsigned int)HEIGHT, 1);
+      // Make sure writing has finished before read
+      glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
-        fragmentShader.use();
-        fragmentShader.setInt("theTexture", 0);
-        glBindTexture(GL_TEXTURE_2D, computeTexture);
-        meshList[0]->RenderMesh();
+      fragmentShader.use();
+      fragmentShader.setInt("theTexture", 0);
+      glBindTexture(GL_TEXTURE_2D, computeTexture);
+      meshList[0]->RenderMesh();
 
-        glUseProgram(0);
-        mainWindow.swapBuffers();
+      glUseProgram(0);
+      mainWindow.swapBuffers();
     }
+  }
 
-    return 0;
+  return 0;
 }
